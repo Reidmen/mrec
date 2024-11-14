@@ -2,7 +2,7 @@
 
 This is a minimal recording application built with Rust, designed to interact with the OpenAI Whisper API.
 
-It's meant to be lightweight and easy to use, with a focus on simplicity and functionality.
+It's meant to be lightweight and easy to use, with a focus on simplicity and functionality. This was part of the [Rusty Day] at Vanellus.
 
 # Requirements
 In order to run this application, you need to have a valid OpenAI API key. Export it as an environment variable:
