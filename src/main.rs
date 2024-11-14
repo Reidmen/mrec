@@ -1,4 +1,10 @@
+use std::{
+    io::Write,
+    sync::{Arc, Mutex},
+};
+
 use clap::Parser;
+use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use regex::Regex;
 use reqwest::blocking::{multipart, Client};
 use serde_json::{self, from_str, json, Value};
@@ -39,30 +45,28 @@ struct CLI {
     // Transcriptions of the recordings
     #[arg(short, long, default_value_t = String::from("./transcriptions"))]
     transcriptions: String,
+    // Using the example (mp3) audio file
+    #[arg(short, long, default_value_t = String::from("false"))]
+    example: String,
 }
 
 fn main() {
     let args = CLI::parse();
 
     println!("Duration: {}", args.duration);
+    println!("Folder: {}", args.folder);
+    println!("Transcriptions: {}", args.transcriptions);
+    println!("Example: {}", args.example);
     // Create folder if is doesn't exist
     if !std::path::Path::new(&args.folder).exists() {
         std::fs::create_dir_all(&args.folder).unwrap();
     }
-    // Get the audio file if it doesn't exits
-    let audio_file = std::path::Path::new(&args.folder).join("test_audio.mp3");
-    if !audio_file.exists() {
-        // The logic here must be implemented and checked the file is stored in a folder
-        println!("TEST Recording audio...");
-    } else {
-        println!("Audio file already exists: {}", audio_file.display());
-    }
-    println!("Folder: {}", args.folder);
     if !std::path::Path::new(&args.transcriptions).exists() {
         std::fs::create_dir_all(&args.transcriptions).unwrap();
     }
-    println!("Transcriptions folder: {}", args.transcriptions);
 
+    // Get the audio file
+    let audio_file = get_audio_file(args.duration, &args.folder, &args.example).unwrap();
     // Creating a transcription
     let transcription = transcript_audio(&audio_file);
     if let Ok(transcription) = transcription {
@@ -93,6 +97,67 @@ fn main() {
     } else {
         println!("Error transcribing audio: {}", transcription.unwrap_err());
     }
+}
+
+fn get_audio_file(
+    duration: u8,
+    recording_folder: &String,
+    example: &String,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let audio_file: std::path::PathBuf;
+    if example == "false" {
+        audio_file = record_audio(duration, recording_folder).unwrap();
+        if !audio_file.exists() {
+            panic!("Audio file not found!");
+        } else {
+            println!("Audio file recorded: {}", audio_file.display());
+        }
+    } else {
+        audio_file = std::path::Path::new(recording_folder).join("test_audio.mp3");
+        println!("Audio file already exists: {}", audio_file.display());
+    }
+    Ok(audio_file)
+}
+
+fn record_audio(
+    duration: u8,
+    recording_folder: &String,
+) -> Result<std::path::PathBuf, Box<dyn std::error::Error>> {
+    let host = cpal::default_host();
+    let device = host.default_input_device().unwrap();
+    println!("Device: {:?}", device.name().unwrap());
+    let config = device.default_output_config().unwrap();
+
+    let path_to_file = std::path::Path::new(&recording_folder).join("real_audio.wav");
+    let writer = Arc::new(Mutex::new(
+        std::fs::File::create(path_to_file.to_str().unwrap()).unwrap(),
+    ));
+    let reader = writer.clone();
+
+    println!("Recording audio for {} seconds...", duration);
+
+    let error_handler = move |error| {
+        eprintln!("Error recording audio: {}", error);
+    };
+    let callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
+        let mut reader = reader.lock().unwrap();
+        for &sample in data.iter() {
+            let amplitude = (sample * i16::MAX as f32) as i16;
+            reader.write(&amplitude.to_be_bytes()).unwrap();
+        }
+    };
+
+    let stream = device.build_input_stream(&config.into(), callback, error_handler, None)?;
+    // Play the stream
+    stream.play().unwrap();
+    std::thread::sleep(std::time::Duration::from_secs(duration as u64));
+    // Drop the stream
+    drop(stream);
+    // Finalize the writer
+    writer.lock().unwrap().flush().unwrap();
+    println!("Recording finished!");
+
+    Ok(path_to_file)
 }
 
 fn execute_response(response: &str) {
