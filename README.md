@@ -19,13 +19,30 @@ and `pv` and `cowsay` to be installed:
 sudo apt install pv cowsay
 ```
 
+# Usage
+To execute the example audio file, run:
+```bash
+cargo run -- --example true
+```
+
+To record an audio with the default microphone, run:
+```bash
+cargo run --example false --duration 5
+```
+which will record for 5 seconds, request a transcription to the OpenAI Whisper API, 
+process it and send it to a text-generating AI and execute the response in the terminal.
+
 
 # TODO:
 
-- [ ] Add a way to save the recording to a file
-- [ ] Introduce basic CLI functionality
-- [ ] Store the recording in a folder
-- [ ] Create a request compatible with the OpenAI Whisper API
-- [ ] Process the request and save the response to a file
+- [x] Add a way to save the recording to a file
+- [x] Introduce basic CLI functionality
+- [x] Store the recording in a folder
+- [x] Create a request compatible with the OpenAI Whisper API
+- [x] Process the request and save the response to a file
 - [ ] Execute such a response (e.g. as a "safe" linux command)
 - [ ] Testing
+
+
+### Use at your own risk
+This is a toy project, use at your own risk.

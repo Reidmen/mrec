@@ -29,7 +29,7 @@ const SAFE_COMMANDS: [&str; 19] = [
     "find",
 ];
 
-const PROMPT_CONTEXT: &str = "You are a helpful assistant. You are precise and concise. You are are Linux user, and provide as responses a cheerful and funny command that creates a nice animation with the cowsay command, to be executed directly in the terminal within a rust program that starts with Command::new(\"bash\").args(response) with response being the command you provide. The command needs to be enclosed in ```bash``` tags.";
+const PROMPT_CONTEXT: &str = "You are a helpful assistant. You are precise and concise. You are are Linux user, and provide responses commands, to be executed directly in the terminal within a rust program that starts with Command::new(\"bash\").args(response) with response being the command you provide. The command needs to be enclosed in ```bash``` tags.";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
