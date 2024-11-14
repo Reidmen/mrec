@@ -7,29 +7,9 @@ use reqwest::blocking::{multipart, Client};
 use serde_json::{self, from_str, json, Value};
 
 #[allow(dead_code)]
-const SAFE_COMMANDS: [&str; 19] = [
-    "ls",
-    "cat",
-    "echo",
-    "pwd",
-    "cd",
-    "mkdir",
-    "mv",
-    "cp",
-    "touch",
-    "tar",
-    "chgrp",
-    "ln",
-    "ln -s",
-    "chmod",
-    "cd",
-    "git",
-    "git diff",
-    "git status",
-    "find",
-];
+const UNSAFE_COMMANDS: [&str; 5] = ["rm", "rm -rf", "rmdir", "cp", "chmod"];
 
-const PROMPT_CONTEXT: &str = "You are a helpful assistant. You are precise and concise. You are are Linux user, and provide responses commands, to be executed directly in the terminal within a rust program that starts with Command::new(\"bash\").args(response) with response being the command you provide. The command needs to be enclosed in ```bash``` tags.";
+const PROMPT_CONTEXT: &str = "You are a helpful assistant. You are precise and concise. You are are Linux user, and provide responses commands, to be executed directly in the terminal (with some random animation from cowsay for a dragon or similar, but avoid unsafe commands like rm, rm -rf, rmdir, cp, chmod). The command needs to be enclosed in ```bash``` tags. REMEMBER that the enclosed ```bash``` tags is important for the command to be found with regex.";
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -50,35 +30,19 @@ struct CLI {
 
 fn main() {
     let args = CLI::parse();
-
-    println!("Duration: {}", args.duration);
-    println!("Folder: {}", args.folder);
-    println!("Transcriptions: {}", args.transcriptions);
-    println!("Example: {}", args.example);
-    // Create folder if is doesn't exist
-    if !std::path::Path::new(&args.folder).exists() {
-        std::fs::create_dir_all(&args.folder).unwrap();
-    }
-    if !std::path::Path::new(&args.transcriptions).exists() {
-        std::fs::create_dir_all(&args.transcriptions).unwrap();
-    }
+    // Create the folders to store the recordings and transcriptions
+    setup_folder_structure(&args.folder, &args.transcriptions).unwrap();
 
     // Get the audio file
     let audio_file = get_audio_file(args.duration, &args.folder, &args.example).unwrap();
     // Creating a transcription
     let transcription = transcript_audio(&audio_file);
     if let Ok(transcription) = transcription {
-        let formatted_transcription: Value = from_str(&transcription).unwrap();
-        let transcription_human_readable = formatted_transcription["text"].as_str().unwrap();
-        println!("Latest transcription: {:?}", transcription_human_readable);
-        // Save the transcription to a file
-        std::fs::write(
-            std::path::Path::new(&args.transcriptions).join("transcription.txt"),
-            transcription_human_readable,
-        )
-        .unwrap();
+        // Process the transcription
+        let transcription_human_readable =
+            process_transcription(&transcription, &args.transcriptions).unwrap();
         // Generate a response
-        let response = text_generation(transcription_human_readable);
+        let response = text_generation(&transcription_human_readable);
         if let Ok(response) = response {
             let formatted_response: Value = from_str(&response).unwrap();
             let response_human_readable = formatted_response["choices"][0]["message"]["content"]
@@ -87,6 +51,7 @@ fn main() {
             println!("Latest response: {:?}", response_human_readable);
             // Clean the response
             let cleaned_response = clean_response(response_human_readable);
+            println!("Cleaned response: {:?}", cleaned_response);
             // Execute the command
             execute_response(&cleaned_response);
         } else {
@@ -95,6 +60,37 @@ fn main() {
     } else {
         println!("Error transcribing audio: {}", transcription.unwrap_err());
     }
+}
+
+fn process_transcription(
+    transcription: &str,
+    transcriptions: &String,
+) -> Result<String, Box<dyn std::error::Error>> {
+    // Format the transcription to human readable and stores it in a file
+    let formatted_transcription: Value = from_str(transcription).unwrap(); // to json
+    let transcription_human_readable = formatted_transcription["text"].as_str().unwrap();
+    println!("Latest transcription: {:?}", transcription_human_readable);
+    // Save the transcription to a file
+    std::fs::write(
+        std::path::Path::new(transcriptions).join("transcription.txt"),
+        transcription_human_readable,
+    )
+    .unwrap();
+    Ok(transcription_human_readable.to_string())
+}
+
+fn setup_folder_structure(
+    recordings: &String,
+    transcriptions: &String,
+) -> Result<(), Box<dyn std::error::Error>> {
+    // Setup folders for the recordsings and transcriptions
+    if !std::path::Path::new(&recordings).exists() {
+        std::fs::create_dir_all(&recordings).unwrap();
+    }
+    if !std::path::Path::new(&transcriptions).exists() {
+        std::fs::create_dir_all(&transcriptions).unwrap();
+    }
+    Ok(())
 }
 
 fn get_audio_file(
@@ -187,9 +183,17 @@ fn clean_response(response: &str) -> String {
     // Only bash commands can be allowed
     let expression = Regex::new(r"```bash\n(.*)\n```").unwrap();
     if let Some(captures) = expression.captures(response) {
-        return captures
+        let captured_command = captures
             .get(1)
             .map_or(String::new(), |m| m.as_str().to_string());
+        if UNSAFE_COMMANDS
+            .iter()
+            .any(|cmd| captured_command.contains(cmd))
+        {
+            println!("Unsafe command found: {}", captured_command);
+            return String::new();
+        }
+        return captured_command;
     }
     String::new()
 }
@@ -235,4 +239,36 @@ fn transcript_audio(audio_file: &std::path::Path) -> Result<String, Box<dyn std:
         .send()?;
 
     Ok(response.text()?)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_clean_response() {
+        let response = "```bash\nls\n```";
+        let cleaned_response = clean_response(response);
+        assert_eq!(cleaned_response, "ls");
+    }
+
+    #[test]
+    fn test_clean_response_unsafe() {
+        let response = "```bash\nrm -rf\n```";
+        let cleaned_response = clean_response(response);
+        assert_eq!(cleaned_response, "");
+    }
+
+    #[test]
+    fn test_clean_response_no_bash() {
+        let response = "ls";
+        let cleaned_response = clean_response(response);
+        assert_eq!(cleaned_response, "");
+    }
+
+    #[test]
+    fn test_execute_response() {
+        let response = "ls";
+        execute_response(response);
+    }
 }
