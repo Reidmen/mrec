@@ -10,6 +10,16 @@ In order to run this application, you need to have a valid OpenAI API key. Expor
 export OPENAI_API_KEY=sk-proj-...
 ```
 
+Some audio dependencies are required to be installed on your system:
+```bash
+sudo apt install libasound-dev
+```
+and `pv` and `cowsay` to be installed:
+```bash
+sudo apt install pv cowsay
+```
+
+
 # TODO:
 
 - [ ] Add a way to save the recording to a file
