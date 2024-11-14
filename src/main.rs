@@ -1,13 +1,11 @@
-use std::{
-    io::Write,
-    sync::{Arc, Mutex},
-};
+use std::sync::{Arc, Mutex};
 
 use clap::Parser;
 use cpal::traits::{DeviceTrait, HostTrait, StreamTrait};
 use regex::Regex;
 use reqwest::blocking::{multipart, Client};
 use serde_json::{self, from_str, json, Value};
+
 #[allow(dead_code)]
 const SAFE_COMMANDS: [&str; 19] = [
     "ls",
@@ -126,13 +124,13 @@ fn record_audio(
     let host = cpal::default_host();
     let device = host.default_input_device().unwrap();
     println!("Device: {:?}", device.name().unwrap());
-    let config = device.default_output_config().unwrap();
+    let config: cpal::StreamConfig = device.default_input_config().unwrap().into();
 
     let path_to_file = std::path::Path::new(&recording_folder).join("real_audio.wav");
-    let writer = Arc::new(Mutex::new(
-        std::fs::File::create(path_to_file.to_str().unwrap()).unwrap(),
-    ));
-    let reader = writer.clone();
+    let writer = Arc::new(Mutex::new(Vec::with_capacity(
+        duration as usize * config.sample_rate.0 as usize,
+    )));
+    let writer_clone = writer.clone();
 
     println!("Recording audio for {} seconds...", duration);
 
@@ -140,23 +138,30 @@ fn record_audio(
         eprintln!("Error recording audio: {}", error);
     };
     let callback = move |data: &[f32], _: &cpal::InputCallbackInfo| {
-        let mut reader = reader.lock().unwrap();
-        for &sample in data.iter() {
-            let amplitude = (sample * i16::MAX as f32) as i16;
-            reader.write(&amplitude.to_be_bytes()).unwrap();
+        let amplified = data.iter().map(|sample| (sample * i16::MAX as f32) as i16);
+        for sample in amplified {
+            writer_clone.lock().unwrap().push(sample);
         }
     };
 
-    let stream = device.build_input_stream(&config.into(), callback, error_handler, None)?;
+    let stream = device
+        .build_input_stream(&config, callback, error_handler, None)
+        .unwrap();
     // Play the stream
     stream.play().unwrap();
     std::thread::sleep(std::time::Duration::from_secs(duration as u64));
     // Drop the stream
     drop(stream);
-    // Finalize the writer
-    writer.lock().unwrap().flush().unwrap();
-    println!("Recording finished!");
 
+    wavers::write(
+        path_to_file.to_str().unwrap(),
+        &writer.lock().unwrap(),
+        config.sample_rate.0 as i32,
+        config.channels,
+    )
+    .unwrap();
+
+    println!("Recording finished!");
     Ok(path_to_file)
 }
 
