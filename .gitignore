@@ -1,0 +1,6 @@
+/target
+/recordings
+/transcriptions
+*.wav
+*.idea
+*.vscode
